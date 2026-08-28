@@ -1,0 +1,18 @@
+manifestVersion: 1
+name: "@funsaized/torlink"
+version: "2026.08.28.1"
+description: "Typed Torlink search, download, seed, and control operations"
+repository: "https://github.com/funsaized/swamp-torlink"
+
+models:
+  - torlink.ts
+
+additionalFiles:
+  - README.md
+  - LICENSE
+
+labels:
+  - torlink
+  - torrent
+  - media
+  - downloads

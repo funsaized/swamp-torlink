@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno fmt --check extensions/models/torlink.ts extensions/models/torlink_test.ts
+      - run: deno lint extensions/models/torlink.ts extensions/models/torlink_test.ts
+      - run: deno check extensions/models/torlink.ts extensions/models/torlink_test.ts
+      - run: deno test --allow-run --allow-read --allow-write --allow-net=127.0.0.1 extensions/models/torlink_test.ts
