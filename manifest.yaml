@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@funsaized/torlink"
-version: "2026.08.28.1"
+version: "2026.08.28.2"
 description: "Typed Torlink search, download, seed, and control operations"
 repository: "https://github.com/funsaized/swamp-torlink"
 

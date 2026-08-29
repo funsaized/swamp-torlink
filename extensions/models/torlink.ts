@@ -1,7 +1,7 @@
 /** Typed Torlink search, download, seed, and control operations. @module */
 import { z } from "npm:zod@4";
 
-const MODEL_VERSION = "2026.08.28.1";
+const MODEL_VERSION = "2026.08.28.2";
 const MAX_CLI_STDOUT_BYTES = 32 * 1024 * 1024;
 const MAX_CLI_STDERR_BYTES = 64 * 1024;
 const MAX_HTTP_BODY_BYTES = 1024 * 1024;
@@ -125,6 +125,7 @@ const StatusResponseSchema = z.object({
 
 const TorrentResourceSchema = z.object({
   infoHash: z.string().regex(INFO_HASH),
+  kind: z.enum(["download", "seed"]).optional(),
   name: z.string().max(4096).nullable(),
   status: TorrentStatusSchema,
   progress: z.number().min(0).max(100).nullable(),
@@ -567,6 +568,7 @@ function currentTorrents(
     const infoHash = download.id.toLowerCase();
     torrents.set(infoHash, {
       infoHash,
+      kind: "download",
       name: download.name,
       status: download.status,
       progress: download.progress,
@@ -581,6 +583,7 @@ function currentTorrents(
     const infoHash = seed.id.toLowerCase();
     torrents.set(infoHash, {
       infoHash,
+      kind: "seed",
       name: seed.name,
       status: seed.status,
       progress: null,

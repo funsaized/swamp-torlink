@@ -454,6 +454,16 @@ Deno.test("sync unifies downloads and seeds and marks disappeared IDs absent", a
       [ID_B]: "seeding",
       [ID_C]: "absent",
     });
+    const kinds = Object.fromEntries(
+      resources.filter(({ specName }) => specName === "torrent")
+        .map(({ data }) => [data.infoHash, data.kind]),
+    );
+    assertEquals(kinds, {
+      [ID_A]: "download",
+      ["d".repeat(40)]: "download",
+      [ID_B]: "seed",
+      [ID_C]: undefined,
+    });
     assertResourcesConform(resources);
   } finally {
     await api.close();
