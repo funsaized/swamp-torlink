@@ -8,9 +8,7 @@ waiting, and control.
 
 - Swamp `20260825.172854.0` or newer.
 - Node.js 22 or newer.
-- A `torlnk` build containing the `search` command merged in
-  [baairon/torlink#180](https://github.com/baairon/torlink/pull/180) at commit
-  `8b1df42` or a later release.
+- Torlink v1.8.0 or newer.
 - `torlnk serve` for methods other than CLI search.
 
 Only download content you are authorized to download.

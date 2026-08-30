@@ -1,7 +1,7 @@
 /** Typed Torlink search, download, seed, and control operations. @module */
 import { z } from "npm:zod@4";
 
-const MODEL_VERSION = "2026.08.28.2";
+const MODEL_VERSION = "2026.08.30.1";
 const MAX_CLI_STDOUT_BYTES = 32 * 1024 * 1024;
 const MAX_CLI_STDERR_BYTES = 64 * 1024;
 const MAX_HTTP_BODY_BYTES = 1024 * 1024;
@@ -708,6 +708,11 @@ export const model = {
   type: "@funsaized/torlink",
   version: MODEL_VERSION,
   globalArguments: GlobalArgumentsSchema,
+  upgrades: [{
+    toVersion: MODEL_VERSION,
+    description: "Declare Torlink v1.8.0 compatibility; no schema changes",
+    upgradeAttributes: (old: Record<string, unknown>) => old,
+  }],
   checks: {
     "safe-base-url": {
       description:

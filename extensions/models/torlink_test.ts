@@ -220,6 +220,16 @@ Deno.test("base URL policy allows loopback and rejects insecure remote HTTP", ()
   );
 });
 
+Deno.test("v1.8 compatibility upgrade preserves global arguments", () => {
+  const attributes = {
+    binary: "/opt/torlnk",
+    baseUrl: "https://example.com",
+    token: "secret",
+    allowInsecureRemote: false,
+  };
+  assertEquals(model.upgrades[0].upgradeAttributes(attributes), attributes);
+});
+
 Deno.test("search passes the query as one argv value without a shell", async () => {
   const root = await Deno.makeTempDir({ prefix: "swamp-torlink-argv-" });
   const capture = `${root}/args`;
@@ -325,13 +335,13 @@ Deno.test("search persists all-source diagnostics before failing the method", as
 
 Deno.test("health validates CLI and HTTP versions with bearer authorization", async () => {
   const token = "test-bearer-token";
-  const fixture = await fakeBinary("printf 'torlink v1.7.0\\n'");
+  const fixture = await fakeBinary("printf 'torlink v1.8.0\\n'");
   const api = await server((request) => {
     assert(
       request.headers.get("authorization") === `Bearer ${token}`,
       "Bearer token missing",
     );
-    return json({ ok: true, version: "1.7.0" });
+    return json({ ok: true, version: "1.8.0" });
   });
   try {
     const { context, resources } = testContext({
