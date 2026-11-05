@@ -1,12 +1,9 @@
 name: CI
-
 on:
   push:
   pull_request:
-
 permissions:
   contents: read
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,7 +12,22 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - run: deno fmt --check extensions/models/torlink.ts extensions/models/torlink_test.ts
-      - run: deno lint extensions/models/torlink.ts extensions/models/torlink_test.ts
-      - run: deno check extensions/models/torlink.ts extensions/models/torlink_test.ts
-      - run: deno test --allow-run --allow-read --allow-write --allow-net=127.0.0.1 extensions/models/torlink_test.ts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/checkout@v4
+        with:
+          repository: baairon/torlink
+          ref: c9f0ab0e90e9d02b63ecbb860d0f51722893e579
+          path: .test-torlink
+      - run: npm ci
+        working-directory: .test-torlink
+      - run: deno fmt --check extensions/models tests
+      - run: deno lint extensions/models tests/*.ts
+      - run: deno check extensions/models/torlink.ts extensions/models/torlink_test.ts tests/contract_test.ts
+      - run: deno test --allow-run --allow-read --allow-write extensions/models/torlink_test.ts
+      - run: deno test --allow-run --allow-read --allow-write --allow-env=TORLINK_SOURCE tests/contract_test.ts
+        env:
+          TORLINK_SOURCE: ${{ github.workspace }}/.test-torlink
+
+      - run: deno test --allow-net=127.0.0.1 tests/http_test.ts
