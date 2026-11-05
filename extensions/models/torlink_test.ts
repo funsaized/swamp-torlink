@@ -82,6 +82,12 @@ function testContext(
 function assertResourcesConform(resources: Resource[]): void {
   for (const resource of resources) {
     switch (resource.specName) {
+      case "network":
+        testing.schemas.network.parse(resource.data);
+        break;
+      case "selection":
+        testing.schemas.selection.parse(resource.data);
+        break;
       case "instance":
         testing.schemas.instance.parse(resource.data);
         break;
@@ -120,26 +126,20 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-async function server(
+function server(
   handler: (request: Request) => Response | Promise<Response>,
 ) {
-  const controller = new AbortController();
-  let resolvePort!: (port: number) => void;
-  const listening = new Promise<number>((resolve) => {
-    resolvePort = resolve;
-  });
-  const instance = Deno.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    signal: controller.signal,
-    onListen: ({ port }) => resolvePort(port),
-  }, handler);
-  const port = await listening;
+  const original = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    request.signal.throwIfAborted();
+    return await handler(request);
+  };
   return {
-    baseUrl: `http://127.0.0.1:${port}`,
-    close: async () => {
-      controller.abort();
-      await instance.finished;
+    baseUrl: "http://127.0.0.1:9161",
+    close: () => {
+      globalThis.fetch = original;
+      return Promise.resolve();
     },
   };
 }
@@ -280,7 +280,7 @@ Deno.test("search handles multiple queries and partial source failures", async (
   }
 });
 
-Deno.test("search rejects malformed CLI JSON before writing resources", async () => {
+Deno.test("search persists malformed CLI JSON diagnostics", async () => {
   const fixture = await fakeBinary("printf 'not-json\\n'");
   try {
     const { context, resources } = testContext({ binary: fixture.path });
@@ -289,9 +289,13 @@ Deno.test("search rejects malformed CLI JSON before writing resources", async ()
         model.methods.search.execute({
           queries: [{ key: "bad", query: "bad", category: "all" }],
         }, context),
-      "invalid JSON",
+      "no responding sources",
     );
-    assert(resources.length === 0, "Malformed search output wrote resources");
+    assert(
+      JSON.stringify(resources).includes("invalid JSON"),
+      "Missing parse diagnostics",
+    );
+    assertResourcesConform(resources);
   } finally {
     await Deno.remove(fixture.root, { recursive: true });
   }
@@ -341,7 +345,9 @@ Deno.test("health validates CLI and HTTP versions with bearer authorization", as
       request.headers.get("authorization") === `Bearer ${token}`,
       "Bearer token missing",
     );
-    return json({ ok: true, version: "1.8.0" });
+    return new URL(request.url).pathname === "/health"
+      ? json({ ok: true, version: "1.8.0" })
+      : json({ downloads: [], seeds: [] });
   });
   try {
     const { context, resources } = testContext({
@@ -368,7 +374,7 @@ Deno.test("add records added, duplicate, invalid, and redacted mixed outcomes", 
     if (magnet === "bad") {
       return json({ error: "invalid magnet or info hash" }, 400);
     }
-    if (magnet === "duplicate") return json({ ok: true, outcome: "duplicate" });
+    if (magnet === ID_B) return json({ ok: true, outcome: "duplicate" });
     if (magnet === "unauthorized") return json({ error: `bad ${token}` }, 401);
     return json({ ok: true, outcome: "added" });
   });
@@ -379,7 +385,7 @@ Deno.test("add records added, duplicate, invalid, and redacted mixed outcomes", 
         model.methods.add.execute({
           inputs: [
             { key: "added", input: `magnet:?xt=urn:btih:${ID_A}` },
-            { key: "duplicate", input: "duplicate" },
+            { key: "duplicate", input: ID_B },
             { key: "invalid", input: "bad" },
             { key: "unauthorized", input: "unauthorized" },
           ],
@@ -596,16 +602,13 @@ Deno.test("wait handles success, terminal failure, timeout, and cancellation", a
 
   const controller = new AbortController();
   controller.abort();
-  await rejects(
-    () =>
-      testing.waitForTargets(
-        { ids: [ID_A], until: "seeding", pollSeconds: 1, timeoutSeconds: 1 },
-        () => Promise.resolve({ downloads: [], seeds: [] }),
-        controller.signal,
-        dependencies,
-      ),
-    "cancelled",
+  const cancelled = await testing.waitForTargets(
+    { ids: [ID_A], until: "seeding", pollSeconds: 1, timeoutSeconds: 1 },
+    () => Promise.resolve({ downloads: [], seeds: [] }),
+    controller.signal,
+    dependencies,
   );
+  assertEquals(cancelled[0]?.outcome, "cancelled");
 });
 
 Deno.test("wait method records cancellation before failing", async () => {
@@ -703,4 +706,316 @@ Deno.test("remove treats an already absent torrent as idempotent success", async
   } finally {
     await api.close();
   }
+});
+
+Deno.test("add normalizes hex/base32 identities and requires exactly one input form", async () => {
+  assertEquals(testing.inputHash("A".repeat(40)), ID_A);
+  assertEquals(testing.inputHash("A".repeat(32)), "0".repeat(40));
+  assertEquals(
+    testing.inputHash(`magnet:?xt=urn:btih:${"A".repeat(32)}`),
+    "0".repeat(40),
+  );
+  assertEquals(testing.inputHash("garbage"), null);
+  assert(
+    !testing.schemas.add.safeParse({ inputs: [{ key: "x" }] }).success,
+    "Missing input accepted",
+  );
+  assert(
+    !testing.schemas.add.safeParse({
+      inputs: [{ key: "x", input: ID_A, torrent: "ZA==" }],
+    }).success,
+    "Ambiguous input accepted",
+  );
+  const requests: unknown[] = [];
+  const api = await server(async (req) => {
+    const body = await req.json();
+    requests.push(body);
+    return json({
+      ok: true,
+      outcome: "added",
+      ...(body.torrent ? { infoHash: ID_B } : {}),
+    });
+  });
+  try {
+    const { context, resources } = testContext();
+    await model.methods.add.execute({
+      inputs: [{ key: "hash", input: "A".repeat(32), seedTime: "30d" }, {
+        key: "file",
+        torrent: "ZA==",
+        seedTime: 0,
+      }],
+    }, context);
+    const results = resources[0].data.results as Array<{ id: string }>;
+    assertEquals(results.map((r) => r.id), ["0".repeat(40), ID_B]);
+    assertEquals(requests, [{ magnet: "A".repeat(32), seedTime: "30d" }, {
+      torrent: "ZA==",
+      seedTime: 0,
+    }]);
+    assertResourcesConform(resources);
+  } finally {
+    await api.close();
+  }
+});
+
+Deno.test("bounded workers retain ordering and never exceed the limit", async () => {
+  let active = 0, peak = 0;
+  const output = await testing.mapBounded([1, 2, 3, 4, 5], 2, async (n) => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((r) => setTimeout(r, 1));
+    active--;
+    return n * 2;
+  });
+  assertEquals(output, [2, 4, 6, 8, 10]);
+  assertEquals(peak, 2);
+});
+
+Deno.test("search preserves successful siblings when one CLI response is malformed", async () => {
+  const fixture = await fakeBinary(
+    `if [ "$2" = bad ]; then printf 'bad-json'; else printf '%s' '${
+      JSON.stringify(searchDocument("good"))
+    }'; fi`,
+  );
+  try {
+    const { context, resources } = testContext({ binary: fixture.path });
+    await rejects(
+      () =>
+        model.methods.search.execute({
+          queries: [{ key: "ok", query: "good", category: "all" }, {
+            key: "bad",
+            query: "bad",
+            category: "all",
+          }],
+        }, context),
+      "no responding sources",
+    );
+    const queries = resources[0].data.queries as Array<
+      { ok: boolean; count: number }
+    >;
+    assertEquals(queries.map((q) => [q.ok, q.count]), [[true, 1], [false, 0]]);
+    assertResourcesConform(resources);
+  } finally {
+    await Deno.remove(fixture.root, { recursive: true });
+  }
+});
+
+Deno.test("wait cancellation preserves completed targets and remembers pending status", async () => {
+  const controller = new AbortController();
+  const result = await testing.waitForTargets(
+    { ids: [ID_A, ID_B], until: "seeding", pollSeconds: 1, timeoutSeconds: 5 },
+    () =>
+      Promise.resolve({
+        downloads: [{
+          id: ID_B,
+          name: "pending",
+          status: "downloading",
+          peers: 0,
+          progress: 10,
+          speed: 0,
+        }],
+        seeds: [{
+          id: ID_A,
+          name: "done",
+          status: "seeding",
+          peers: 0,
+          uploaded: 0,
+        }],
+      }),
+    controller.signal,
+    {
+      now: () => 0,
+      sleep: () => {
+        controller.abort();
+        return Promise.reject(new Error("cancelled"));
+      },
+    },
+  );
+  assertEquals(result.map((r) => r.outcome), ["reached", "cancelled"]);
+  assertEquals(result[1].observedStatus, "downloading");
+  assertEquals(model.methods.wait.kind, "read");
+});
+
+Deno.test("wait passes remaining budget and does not poll at the deadline", async () => {
+  let now = 0;
+  const budgets: number[] = [];
+  const results = await testing.waitForTargets(
+    { ids: [ID_A], until: "seeding", pollSeconds: 1, timeoutSeconds: 1 },
+    (budget) => {
+      budgets.push(budget);
+      return Promise.resolve({ downloads: [], seeds: [] });
+    },
+    new AbortController().signal,
+    {
+      now: () => now,
+      sleep: (ms) => {
+        now += ms;
+        return Promise.resolve();
+      },
+    },
+  );
+  assertEquals(budgets, [1000]);
+  assertEquals(results[0].outcome, "timeout");
+});
+
+Deno.test("health records bad authentication, compatible version skew and strict mismatch", async () => {
+  const fixture = await fakeBinary("printf 'torlink v1.10.0\\n'");
+  let authorized = false;
+  const api = await server((req) =>
+    new URL(req.url).pathname === "/health"
+      ? json({ ok: true, version: "1.8.0" })
+      : authorized
+      ? json({ downloads: [], seeds: [] })
+      : json({ error: "unauthorized" }, 401)
+  );
+  try {
+    const failed = testContext({ binary: fixture.path });
+    await rejects(
+      () => model.methods.health.execute({}, failed.context),
+      "health failed",
+    );
+    assertEquals(failed.resources[0].data.serverReachable, true);
+    assertEquals(failed.resources[0].data.authenticated, false);
+    authorized = true;
+    const ok = testContext({ binary: fixture.path });
+    await model.methods.health.execute({}, ok.context);
+    assertEquals(ok.resources[0].data.compatible, true);
+    await rejects(
+      () => model.methods.health.execute({ strictVersions: true }, ok.context),
+      "health failed",
+    );
+    assertResourcesConform(failed.resources);
+    assertResourcesConform(ok.resources);
+  } finally {
+    await api.close();
+    await Deno.remove(fixture.root, { recursive: true });
+  }
+});
+
+Deno.test("network methods and sync preserve Torlink 1.10 fields", async () => {
+  const network = {
+    interface: "wg0",
+    address: null,
+    online: false,
+    peerPort: 51413,
+    incoming: 0,
+    known: ["wg0"],
+  };
+  let patch: unknown;
+  const api = await server(async (req) => {
+    if (new URL(req.url).pathname === "/downloads") {
+      return json({
+        downloads: [],
+        seeds: [{
+          id: ID_A,
+          name: "seed",
+          status: "paused",
+          peers: 0,
+          uploaded: 1,
+          seedTimeMs: 1000,
+          seedUntil: 2000,
+        }],
+        network,
+      });
+    }
+    if (req.method === "POST") {
+      patch = await req.json();
+      return json({ ok: true, ...network });
+    }
+    return json(network);
+  });
+  try {
+    const { context, resources } = testContext();
+    await model.methods.network.execute({}, context);
+    await model.methods.configureNetwork.execute({
+      interface: "wg0",
+      dhtPort: null,
+    }, context);
+    await model.methods.sync.execute({}, context);
+    assertEquals(patch, { interface: "wg0", dhtPort: null });
+    const snapshot = resources.find((r) => r.name === "snapshot-current")!;
+    assertEquals(snapshot.data.network, network);
+    assertEquals(
+      (snapshot.data.torrents as Array<{ seedUntil: number }>)[0].seedUntil,
+      2000,
+    );
+    assertResourcesConform(resources);
+  } finally {
+    await api.close();
+  }
+});
+
+Deno.test("seed-time validates duration grammar and sends overrides", async () => {
+  const args = testing.schemas.control.parse({
+    ids: [ID_A],
+    action: "seed-time",
+    seedTime: "30D",
+  });
+  assert(
+    !testing.schemas.control.safeParse({ ids: [ID_A], action: "seed-time" })
+      .success,
+    "Missing seedTime accepted",
+  );
+  assert(
+    !testing.schemas.control.safeParse({
+      ids: [ID_A],
+      action: "seed-time",
+      seedTime: "1w",
+    }).success,
+    "Unsupported unit accepted",
+  );
+  let sent: unknown;
+  const api = await server(async (req) => {
+    sent = await req.json();
+    return json({ ok: true, id: ID_A, action: "seed-time" });
+  });
+  try {
+    const { context, resources } = testContext();
+    await model.methods.control.execute(args, context);
+    assertEquals(sent, {
+      id: ID_A,
+      action: "seed-time",
+      deleteFiles: false,
+      seedTime: "30d",
+    });
+    assertResourcesConform(resources);
+  } finally {
+    await api.close();
+  }
+});
+
+Deno.test("selection enforces policy and uses stable ties independent of input order", async () => {
+  const result = searchDocument("example").results[0];
+  const queries = [{
+    ...searchDocument("example"),
+    key: "one",
+    ok: true,
+    category: "all" as const,
+    results: [{ ...result, infoHash: ID_B }, { ...result, infoHash: ID_A }, {
+      ...result,
+      infoHash: ID_C,
+      source: "excluded",
+      seeders: 100,
+    }],
+  }];
+  const { context, resources } = testContext();
+  const policy = {
+    sources: ["yts"],
+    minSeeders: 1,
+    minSizeBytes: 1,
+    maxSizeBytes: 2000,
+  };
+  await model.methods.select.execute({ queries, ...policy }, context);
+  assertEquals(
+    (resources[0].data.selections as Array<{ id: string }>)[0].id,
+    ID_A,
+  );
+  await rejects(
+    () =>
+      model.methods.select.execute(
+        { queries, ...policy, minSeeders: 1000 },
+        context,
+      ),
+    "No eligible result",
+  );
+  assertResourcesConform(resources);
 });
