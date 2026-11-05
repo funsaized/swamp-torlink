@@ -10,7 +10,7 @@ cp -R "$repo_dir/extensions" "$repo_dir/workflows" "$smoke_dir/"
 swamp help model create >/dev/null
 swamp model create @funsaized/torlink torlink --repo-dir "$smoke_dir" --json
 swamp help workflow validate >/dev/null
-swamp workflow validate torlink-download --repo-dir "$smoke_dir" --json
+swamp workflow validate @funsaized/torlink-download --repo-dir "$smoke_dir" --json
 swamp help model method run >/dev/null
 swamp model method run torlink select --repo-dir "$smoke_dir" --stdin --json <<'JSON'
 {"queries":[{"key":"fixture","query":"fixture","category":"all","ok":true,"count":1,"sources":{},"results":[{"infoHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"Fixture","source":"fixture","sizeBytes":1024,"seeders":1,"leechers":0,"magnet":"magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}],"sources":["fixture"],"minSeeders":1,"minSizeBytes":1,"maxSizeBytes":2048}

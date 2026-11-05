@@ -54,6 +54,12 @@ clamp that to their remaining deadline. CLI search has a process deadline five
 seconds beyond its search timeout (45 seconds by default). No automatic mutation
 retries occur: inspect operation results after an ambiguous transport failure.
 
+Search and CLI health require a local Torlink subprocess. The configured
+`binary` must be a trusted executable. Arguments are passed separately without
+a shell; search inputs are schema-validated. Subprocesses have cancellation and
+deadlines, with stdout limited to 32 MiB and stderr to 64 KiB. This required
+subprocess use is the declared `deno-command` quality exception.
+
 `health`, `wait`, `network` and `select` declare read method kinds. On the
 required Swamp runtime, waiting does not hold the behavior's mutation lock, so
 `control` can run concurrently. `sync` retains serialization for reconciliation.
@@ -80,7 +86,7 @@ of every optional endpoint; backports are not inferred.
 
 ## Reference workflow
 
-The package includes `torlink-download`, created with Swamp's workflow CLI:
+The package includes `@funsaized/torlink-download`, created with Swamp's workflow CLI:
 
 ```text
 search → select → add → wait → sync
@@ -96,8 +102,8 @@ trackers. For private trackers, pass the corresponding stored search magnet
 instead.
 
 ```sh
-swamp workflow validate torlink-download
-swamp workflow run torlink-download \
+swamp workflow validate @funsaized/torlink-download
+swamp workflow run @funsaized/torlink-download \
   --input query='Example' \
   --input sources:json='["yts"]' \
   --input maxSizeBytes=4000000000

@@ -1,7 +1,6 @@
 /** Typed Torlink search, download, seed, and control operations. @module */
 import { z } from "npm:zod@4.4.3";
 
-const MODEL_VERSION = "2026.11.05.1";
 const MAX_CLI_STDOUT_BYTES = 32 * 1024 * 1024;
 const MAX_CLI_STDERR_BYTES = 64 * 1024;
 const MAX_HTTP_BODY_BYTES = 1024 * 1024;
@@ -506,6 +505,7 @@ async function runCli(
   );
   let child: Deno.ChildProcess | undefined;
   try {
+    // swamp-quality-ignore deno-command
     child = new Deno.Command(command, {
       args,
       signal: controller.signal,
@@ -858,14 +858,14 @@ async function waitForTargets(
 /** Torlink model definition. */
 export const model = {
   type: "@funsaized/torlink",
-  version: MODEL_VERSION,
+  version: "2026.11.05.1",
   globalArguments: GlobalArgumentsSchema,
   upgrades: [{
     toVersion: "2026.08.30.1",
     description: "Declare Torlink v1.8.0 compatibility; no schema changes",
     upgradeAttributes: (old: Record<string, unknown>) => old,
   }, {
-    toVersion: MODEL_VERSION,
+    toVersion: "2026.11.05.1",
     description:
       "Add bounded batches, authenticated health, seed/network capabilities and deterministic selection; retain existing configuration",
     upgradeAttributes: (old: Record<string, unknown>) => old,

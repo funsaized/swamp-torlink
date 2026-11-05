@@ -1,5 +1,5 @@
 id: 27ec7c17-49bb-4214-9d4f-0e1f284d9557
-name: torlink-download
+name: "@funsaized/torlink-download"
 version: 1
 description: Search, select by explicit policy, add, wait and snapshot a torrent.
 concurrency: 1
