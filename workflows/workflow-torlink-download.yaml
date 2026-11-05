@@ -1,0 +1,122 @@
+id: 27ec7c17-49bb-4214-9d4f-0e1f284d9557
+name: torlink-download
+version: 1
+description: Search, select by explicit policy, add, wait and snapshot a torrent.
+concurrency: 1
+inputs:
+  type: object
+  properties:
+    query:
+      type: string
+      minLength: 1
+    category:
+      type: string
+      enum:
+        - all
+        - games
+        - movies
+        - tv
+        - anime
+      default: all
+    sources:
+      type: array
+      items:
+        type: string
+      minItems: 1
+    minSeeders:
+      type: integer
+      minimum: 0
+      default: 1
+    minSizeBytes:
+      type: integer
+      minimum: 0
+      default: 0
+    maxSizeBytes:
+      type: integer
+      minimum: 0
+    timeoutSeconds:
+      type: integer
+      minimum: 1
+      maximum: 604800
+      default: 3600
+  required:
+    - query
+    - sources
+    - maxSizeBytes
+jobs:
+  - name: download
+    steps:
+      - name: search
+        task:
+          type: model_method
+          modelIdOrName: torlink
+          methodName: search
+          inputs:
+            queries:
+              - key: requested
+                query: ${{ inputs.query }}
+                category: ${{ inputs.category }}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+      - name: select
+        dependsOn:
+          - step: search
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: torlink
+          methodName: select
+          inputs:
+            queries: ${{ data.latest("torlink", "search-current").attributes.queries }}
+            sources: ${{ inputs.sources }}
+            minSeeders: ${{ inputs.minSeeders }}
+            minSizeBytes: ${{ inputs.minSizeBytes }}
+            maxSizeBytes: ${{ inputs.maxSizeBytes }}
+        weight: 0
+        allowFailure: false
+      - name: add
+        dependsOn:
+          - step: select
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: torlink
+          methodName: add
+          inputs:
+            inputs:
+              - key: requested
+                input: ${{ data.latest("torlink", "selection-current").attributes.selections[0].id }}
+        weight: 0
+        allowFailure: false
+      - name: wait
+        dependsOn:
+          - step: add
+            condition:
+              type: succeeded
+        task:
+          type: model_method
+          modelIdOrName: torlink
+          methodName: wait
+          inputs:
+            ids: ${{ data.latest("torlink", "operation-add").attributes.results.map(r, r.id) }}
+            until: seeding
+            timeoutSeconds: ${{ inputs.timeoutSeconds }}
+        weight: 0
+        allowFailure: false
+      - name: sync
+        dependsOn:
+          - step: wait
+            condition:
+              type: completed
+        task:
+          type: model_method
+          modelIdOrName: torlink
+          methodName: sync
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+tags: {}
